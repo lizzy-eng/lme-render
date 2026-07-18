@@ -1,0 +1,8 @@
+node_modules/
+public/*.jpg
+public/*.png
+public/*.mp3
+public/*.wav
+props.json
+out.mp4
+build.out
