@@ -59,28 +59,30 @@ STICK_LOOK = ("simple bold deep charcoal grey stick figure line drawing (dark wa
               "monochrome grey only, no bright color, no text, no words, no letters")
 
 # Elijah, the give-up story, STICKMAN style (daily inspiration lane). vis = stick-figure action.
+# vis = SETTING ONLY, no people. The character is the code-ANIMATED stick figure that
+# plays on top (motion), so the figure genuinely moves instead of being a static still.
 ELIJAH = [
- {"kind":"title","label":"The Day Elijah\nWanted to Give Up","ref":"When you feel like quitting",
+ {"kind":"title","label":"The Day Elijah\nWanted to Give Up","ref":"When you feel like quitting","motion":"trudge",
   "narr":"One of the boldest men in the Bible sat down in the wilderness and asked God to take his life. This is Elijah, and the truth about what God does when you have nothing left.",
-  "vis":"a small stick figure man walking alone across an empty flat landscape, head down, tired and slow"},
- {"kind":"scene","label":"He had nothing left","ref":"",
+  "vis":"an empty flat desert horizon line with a few small scrub bushes, wide open, no people, no figures"},
+ {"kind":"scene","label":"He had nothing left","ref":"","motion":"slump",
   "narr":"He had just seen fire fall from heaven. But fear sent him running into the desert, alone, and completely out of strength.",
-  "vis":"a stick figure man slumped on the ground under one simple bare tree, shoulders down, head in his hands"},
- {"kind":"verse","label":"I have had enough, Lord.","ref":"1 Kings 19:4, CSB",
+  "vis":"one simple bare broom tree on an empty desert horizon, no people, no figures"},
+ {"kind":"verse","label":"I have had enough, Lord.","ref":"1 Kings 19:4, CSB","motion":"slump",
   "narr":"He said, I have had enough, Lord. Take my life. This is not a weak man. It is a faithful one who ran empty.",
-  "vis":"a stick figure man sitting under a small bare tree, looking up at the sky, weary and honest"},
- {"kind":"scene","label":"God did not scold him","ref":"",
+  "vis":"a small bare tree and an empty sky over a quiet desert horizon, no people, no figures"},
+ {"kind":"scene","label":"God did not scold him","ref":"","motion":"wake",
   "narr":"Then he fell asleep. And an angel touched him and said, get up and eat. There was warm bread and a jar of water beside him. God did not lecture him. God fed him.",
-  "vis":"a small glowing stick figure angel standing beside a sleeping stick figure man, a round loaf of bread and a water jar on the ground"},
- {"kind":"verse","label":"Get up and eat.","ref":"1 Kings 19:7, CSB",
+  "vis":"a round loaf of bread and a simple clay water jar resting on the ground beside a bare tree, soft light, no people, no figures"},
+ {"kind":"verse","label":"Get up and eat.","ref":"1 Kings 19:7, CSB","motion":"wake",
   "narr":"The angel came back a second time and said, get up and eat, or the journey will be too much for you.",
-  "vis":"a stick figure angel gently touching a stick figure man on the shoulder to wake him, bread and water nearby"},
- {"kind":"scene","label":"Strength for the journey","ref":"",
+  "vis":"bread and a water jar on the ground with a soft glow of light above them, no people, no figures"},
+ {"kind":"scene","label":"Strength for the journey","ref":"","motion":"rise",
   "narr":"So he got up, and ate, and drank. And strengthened by that food he traveled forty days to the mountain of God. Rest and bread came before the calling.",
-  "vis":"a stick figure man standing up with new energy, walking toward small simple mountains, a rising sun"},
- {"kind":"close","label":"You are not done","ref":"sacredecho33.com",
+  "vis":"small simple mountains in the distance with a rising sun over an open desert path, no people, no figures"},
+ {"kind":"close","label":"You are not done","ref":"sacredecho33.com","motion":"stand",
   "narr":"God met Elijah in his lowest place. He let him rest, He fed him, and He gave him what was next. The same God who saw Elijah sees you. Wherever you are standing, you are not done.",
-  "vis":"a stick figure man standing tall on a small hill at sunrise, arms slightly open, hopeful, a simple sun"},
+  "vis":"a small hill at sunrise on an open horizon, hopeful light, no people, no figures"},
 ]
 
 STORIES = {"ruth": RUTH, "elijah": ELIJAH}
@@ -223,14 +225,16 @@ def main():
                 frames = max(18, int(dur(os.path.join(PUB, clip)) * FPS))
                 scenes.append({"kind": s["kind"] if bi == 0 else "scene", "label": s["label"],
                                "ref": s.get("ref", "") if bi == 0 else "",
-                               "img": img_name, "audio": clip, "frames": frames})
+                               "img": img_name, "audio": clip, "frames": frames,
+                               "motion": s.get("motion")})
         else:
             img_name = f"s{i}.jpg"
             if not image(s["vis"], os.path.join(PUB, img_name)):
                 img_name = None
             frames = int(dur(fullpath) * FPS) + 8
             scenes.append({"kind": s["kind"], "label": s["label"], "ref": s.get("ref", ""),
-                           "img": img_name, "audio": full, "frames": frames})
+                           "img": img_name, "audio": full, "frames": frames,
+                           "motion": s.get("motion")})
     props = {"title": title, "accent": "#c45670", "scenes": scenes}
     open(os.path.join(os.path.dirname(__file__), "props.json"), "w").write(json.dumps(props, indent=2))
     print("TITLE=" + title)

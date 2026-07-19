@@ -3,6 +3,7 @@ import {
   AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
+import {AnimatedStick, StickMode} from './AnimatedStick';
 
 // SACRED FILM — SacredEcho33 full narrated Bible teaching video (16:9, 1920x1080).
 // Each scene is held for exactly the length of its narration (voice synced to scene).
@@ -20,6 +21,7 @@ export type SScene = {
   img?: string;
   audio?: string;
   frames: number;
+  motion?: StickMode;   // when set, a REAL animated stick figure plays over the scene
 };
 export type SProps = {title: string; accent?: string; scenes: SScene[]};
 
@@ -56,7 +58,14 @@ const Scene: React.FC<{s: SScene; idx: number; accent: string}> = ({s, idx, acce
   const up = interpolate(spring({frame: f, fps, config: {damping: 200}}), [0, 1], [40, 0]);
   const op = interpolate(f, [8, 28], [0, 1], {extrapolateRight: 'clamp'});
   const sweep = interpolate(f, [18, 46], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  const img = s.img ? <KB img={s.img} d={d} dir={idx} /> : <AbsoluteFill style={{background: '#e9dec8'}} />;
+  const bg = s.img ? <KB img={s.img} d={d} dir={idx} /> : <AbsoluteFill style={{background: '#e9dec8'}} />;
+  // the figure genuinely animates on top of the scene art (real motion, not a pan)
+  const img = (
+    <>
+      {bg}
+      {s.motion ? <AnimatedStick mode={s.motion} /> : null}
+    </>
+  );
   const aud = s.audio ? <Audio src={staticFile(s.audio)} /> : null;
 
   if (s.kind === 'title' || s.kind === 'close') {
