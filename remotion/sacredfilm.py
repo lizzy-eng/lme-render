@@ -117,6 +117,19 @@ def image(visual, path):
             b = d.get("result", {}).get("image")
             if b:
                 open(path, "wb").write(base64.b64decode(b))
+                if STORY == "elijah":
+                    # STICKMAN FRAMING FIX: force true monochrome (no stray colour ever) and
+                    # letterbox onto a white 16:9 canvas so the whole figure stays in frame
+                    # instead of being cropped/zoomed out of the shot.
+                    tmp = path + ".fix.jpg"
+                    try:
+                        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", path, "-vf",
+                                        "hue=s=0,scale=1600:900:force_original_aspect_ratio=decrease,"
+                                        "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:white", tmp],
+                                       check=True, timeout=90)
+                        os.replace(tmp, path)
+                    except Exception as e:
+                        print("FRAME_FIX_SKIPPED:", str(e)[:100])
                 return True
         except Exception:
             continue
