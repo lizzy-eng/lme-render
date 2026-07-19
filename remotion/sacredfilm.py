@@ -125,9 +125,22 @@ def image(visual, path):
 
 def voice(text, base):
     mp3 = base + ".mp3"
+    # PRIMARY: Lizzy's Fish Audio brand voice (warm, not robotic). NEVER edge-tts unless Fish is down.
+    fish = os.environ.get("FISH_API_KEY", "")
+    if fish:
+        try:
+            body = json.dumps({"text": text, "reference_id": "9baa1352ca014e81999898e77de4533b", "format": "mp3"}).encode()
+            req = urllib.request.Request("https://api.fish.audio/v1/tts", data=body,
+                headers={"Authorization": "Bearer " + fish, "Content-Type": "application/json", "model": "s1"}, method="POST")
+            data = urllib.request.urlopen(req, timeout=150).read()
+            if len(data) > 1200:
+                open(mp3, "wb").write(data)
+                return os.path.basename(mp3)
+        except Exception as e:
+            print("FISH_TTS_FALLBACK:", str(e)[:120])
+    # fallback only if Fish fails
     try:
-        subprocess.run(["edge-tts", "--voice", "en-US-JennyNeural", "--rate", "-8%",
-                        "--text", text, "--write-media", mp3], check=True, timeout=60)
+        subprocess.run(["edge-tts", "--voice", "en-US-JennyNeural", "--text", text, "--write-media", mp3], check=True, timeout=60)
         if os.path.exists(mp3) and os.path.getsize(mp3) > 800:
             return os.path.basename(mp3)
     except Exception:
@@ -146,20 +159,69 @@ def dur(path):
         return 4.0
 
 
+def beats_from_audio(path):
+    """VOICE-FIRST PAUSE SYNC (the reference method): word timestamps -> split on natural
+    pauses so the picture changes on the breath, never on a guessed scene length."""
+    try:
+        from faster_whisper import WhisperModel
+        model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        segs, _ = model.transcribe(path, word_timestamps=True)
+        words = []
+        for s in segs:
+            for w in (s.words or []):
+                words.append((w.start, w.end, w.word))
+        if len(words) < 2:
+            return None
+        beats, cur = [], [words[0]]
+        for prev, w in zip(words, words[1:]):
+            gap = w[0] - prev[1]
+            if gap > 0.32 and (prev[1] - cur[0][0]) > 1.8:      # a real breath, and the beat has legs
+                beats.append([cur[0][0], prev[1], "".join(x[2] for x in cur).strip()])
+                cur = [w]
+            else:
+                cur.append(w)
+        beats.append([cur[0][0], words[-1][1], "".join(x[2] for x in cur).strip()])
+        beats[0][0] = 0.0                                        # keep the head of the clip
+        return beats
+    except Exception as e:
+        print("WHISPER_BEATS_FALLBACK:", str(e)[:140])
+        return None
+
+
+def cut(src, dst, start, end):
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-ss", f"{start:.3f}",
+                    "-to", f"{end:.3f}", "-c:a", "libmp3lame", dst], check=True, timeout=90)
+    return os.path.basename(dst)
+
+
 def main():
     scenes = []
+    title = "The Story of Ruth" if STORY == "ruth" else "The Day Elijah Wanted to Give Up"
     for i, s in enumerate(SCENES):
-        img_name = f"s{i}.jpg"
-        if not image(s["vis"], os.path.join(PUB, img_name)):
-            img_name = None
-        aud = voice(s["narr"], os.path.join(PUB, f"v{i}"))
-        frames = int(dur(os.path.join(PUB, aud)) * FPS) + 12  # small tail so the voice never clips
-        scenes.append({"kind": s["kind"], "label": s["label"], "ref": s.get("ref", ""),
-                       "img": img_name, "audio": aud, "frames": frames})
-    props = {"title": "The Story of Ruth", "accent": "#c45670", "scenes": scenes}
+        full = voice(s["narr"], os.path.join(PUB, f"v{i}"))          # VOICE FIRST
+        fullpath = os.path.join(PUB, full)
+        bts = beats_from_audio(fullpath)
+        if bts and len(bts) > 1:
+            for bi, (st, en, _txt) in enumerate(bts):                 # one picture per breath
+                clip = cut(fullpath, os.path.join(PUB, f"b{i}_{bi}.mp3"), st, en)
+                img_name = f"s{i}_{bi}.jpg"
+                if not image(s["vis"], os.path.join(PUB, img_name)):
+                    img_name = None
+                frames = max(18, int(dur(os.path.join(PUB, clip)) * FPS))
+                scenes.append({"kind": s["kind"] if bi == 0 else "scene", "label": s["label"],
+                               "ref": s.get("ref", "") if bi == 0 else "",
+                               "img": img_name, "audio": clip, "frames": frames})
+        else:
+            img_name = f"s{i}.jpg"
+            if not image(s["vis"], os.path.join(PUB, img_name)):
+                img_name = None
+            frames = int(dur(fullpath) * FPS) + 8
+            scenes.append({"kind": s["kind"], "label": s["label"], "ref": s.get("ref", ""),
+                           "img": img_name, "audio": full, "frames": frames})
+    props = {"title": title, "accent": "#c45670", "scenes": scenes}
     open(os.path.join(os.path.dirname(__file__), "props.json"), "w").write(json.dumps(props, indent=2))
-    print("TITLE=The Story of Ruth")
-    print("SCENES=" + str(len(scenes)))
+    print("TITLE=" + title)
+    print("BEATS=" + str(len(scenes)))
     print("wrote props.json + public assets")
 
 

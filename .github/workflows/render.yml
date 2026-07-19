@@ -15,25 +15,48 @@ jobs:
         run: |
           echo "::add-mask::${{ github.event.client_payload.cf_key }}"
           echo "::add-mask::${{ github.event.client_payload.drive_token }}"
+          echo "::add-mask::${{ github.event.client_payload.fish_key }}"
       - name: System deps
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg espeak-ng
-          pip install --quiet edge-tts
+          pip install --quiet edge-tts faster-whisper
       - name: Install Remotion
         working-directory: remotion
         run: npm install --no-audit --no-fund
-      - name: Build scenes + narration
+      - name: Build scenes + brand voice + pause-tight beats
         working-directory: remotion
         env:
           CF_ACCOUNT_ID: ${{ github.event.client_payload.cf_account }}
           CF_API_KEY: ${{ github.event.client_payload.cf_key }}
           CF_EMAIL: ${{ github.event.client_payload.cf_email }}
+          FISH_API_KEY: ${{ github.event.client_payload.fish_key }}
           STORY: ${{ github.event.client_payload.story }}
         run: python sacredfilm.py
       - name: Render MP4
         working-directory: remotion
         run: npx remotion render SacredFilm out.mp4 --props=props.json --concurrency=2 --crf=23
+      - name: AUDIO QA (transcribe back, must match script)
+        working-directory: remotion
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          from faster_whisper import WhisperModel
+          subprocess.run(["ffmpeg","-y","-loglevel","error","-i","out.mp4","-vn","-c:a","libmp3lame","qa.mp3"],check=True)
+          m=WhisperModel("tiny",device="cpu",compute_type="int8")
+          segs,_=m.transcribe("qa.mp3")
+          heard=" ".join(s.text for s in segs).lower()
+          props=json.load(open("props.json"))
+          words=set()
+          for sc in props["scenes"]:
+              for w in (sc.get("label") or "").lower().split(): words.add(w.strip(".,“”"))
+          hit=sum(1 for w in words if len(w)>3 and w in heard)
+          need=max(1,int(len([w for w in words if len(w)>3])*0.35))
+          print(f"AUDIO_QA heard {len(heard)} chars; matched {hit}/{need} key words")
+          if len(heard) < 80 or hit < need:
+              raise SystemExit("AUDIO QA FAILED: narration unclear or does not match script")
+          print("AUDIO QA PASSED")
+          PY
       - name: Upload to Drive
         working-directory: remotion
         env:
@@ -42,15 +65,15 @@ jobs:
           STORY: ${{ github.event.client_payload.story }}
         run: |
           python - <<'PY'
-          import os, json, urllib.request, re
-          tok=os.environ["DRIVE_TOKEN"]; folder=os.environ.get("DRIVE_FOLDER") or "198QGJfi7An6MSI3Z8CJd1x6UZe2K9Nhp"
+          import os, json, urllib.request
+          tok=os.environ["DRIVE_TOKEN"]; folder=os.environ.get("DRIVE_FOLDER")
           story=os.environ.get("STORY","ruth")
-          name=f"NBM_SacredEcho_{story.capitalize()}_STICKMAN_FULL.mp4" if story=="elijah" else f"NBM_SacredEcho_{story.capitalize()}_FULL.mp4"
+          name=f"NBM_SacredEcho_{story.capitalize()}_STICKMAN_v2.mp4" if story=="elijah" else f"NBM_SacredEcho_{story.capitalize()}_v2.mp4"
           b="NBMr7e6b"
           pre=(f"--{b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps({'name':name,'parents':[folder]})}\r\n--{b}\r\nContent-Type: video/mp4\r\n\r\n").encode()
           body=pre+open("out.mp4","rb").read()+f"\r\n--{b}--".encode()
-          req=urllib.request.Request("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink",data=body,method="POST",headers={"Authorization":"Bearer "+tok,"Content-Type":f"multipart/related; boundary={b}"})
+          req=urllib.request.Request("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id",data=body,method="POST",headers={"Authorization":"Bearer "+tok,"Content-Type":f"multipart/related; boundary={b}"})
           fid=json.loads(urllib.request.urlopen(req,timeout=600).read())["id"]
           urllib.request.urlopen(urllib.request.Request(f"https://www.googleapis.com/drive/v3/files/{fid}/permissions?supportsAllDrives=true",data=b'{"role":"reader","type":"anyone"}',method="POST",headers={"Authorization":"Bearer "+tok,"Content-Type":"application/json"}),timeout=60)
-          print("UPLOADED https://drive.google.com/file/d/%s/view"%fid)
+          print("FINAL_VIDEO_ID="+fid)
           PY
