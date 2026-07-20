@@ -57,7 +57,14 @@ jobs:
               raise SystemExit("AUDIO QA FAILED: narration unclear or does not match script")
           print("AUDIO QA PASSED")
           PY
+      - name: Keep the render as a run artifact (survives an expired Drive token)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.client_payload.story }}-render
+          path: remotion/out.mp4
+          retention-days: 3
       - name: Upload to Drive
+        continue-on-error: true
         working-directory: remotion
         env:
           DRIVE_TOKEN: ${{ github.event.client_payload.drive_token }}
