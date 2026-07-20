@@ -71,13 +71,13 @@ ELIJAH = [
  {"kind":"verse","label":"I have had enough, Lord.","ref":"1 Kings 19:4, CSB","motion":"slump",
   "narr":"He said, I have had enough, Lord. Take my life. This is not a weak man. It is a faithful one who ran empty.",
   "vis":"a small bare tree and an empty sky over a quiet desert horizon, no people, no figures"},
- {"kind":"scene","label":"God did not scold him","ref":"","motion":"wake",
+ {"kind":"scene","label":"God did not scold him","ref":"","motion":"angel",
   "narr":"Then he fell asleep. And an angel touched him and said, get up and eat. There was warm bread and a jar of water beside him. God did not lecture him. God fed him.",
   "vis":"a round loaf of bread and a simple clay water jar resting on the ground beside a bare tree, soft light, no people, no figures"},
- {"kind":"verse","label":"Get up and eat.","ref":"1 Kings 19:7, CSB","motion":"wake",
+ {"kind":"verse","label":"Get up and eat.","ref":"1 Kings 19:7, CSB","motion":"angel",
   "narr":"The angel came back a second time and said, get up and eat, or the journey will be too much for you.",
   "vis":"bread and a water jar on the ground with a soft glow of light above them, no people, no figures"},
- {"kind":"scene","label":"Strength for the journey","ref":"","motion":"rise",
+ {"kind":"scene","label":"Strength for the journey","ref":"","motion":"eat",
   "narr":"So he got up, and ate, and drank. And strengthened by that food he traveled forty days to the mountain of God. Rest and bread came before the calling.",
   "vis":"small simple mountains in the distance with a rising sun over an open desert path, no people, no figures"},
  {"kind":"close","label":"You are not done","ref":"sacredecho33.com","motion":"stand",
@@ -153,6 +153,10 @@ def voice(text, base):
                 return os.path.basename(mp3)
         except Exception as e:
             print("FISH_TTS_FALLBACK:", str(e)[:120])
+    # HARD GATE: a final render must carry the Fish brand voice. If Fish is unavailable
+    # the render FAILS LOUD instead of shipping a robotic fallback voice to Lizzy.
+    if os.environ.get("FISH_REQUIRED", "1") == "1":
+        raise RuntimeError("Fish Audio voice unavailable (key missing or API failed) and FISH_REQUIRED=1 - refusing to render with a fallback voice")
     # fallback only if Fish fails
     try:
         subprocess.run(["edge-tts", "--voice", "en-US-JennyNeural", "--text", text, "--write-media", mp3], check=True, timeout=60)
@@ -203,6 +207,26 @@ def beats_from_audio(path):
         return None
 
 
+def qa_audio(path, expected):
+    """AUDIO QA GATE: transcribe the narration back and require it to match the script.
+    A render whose voice does not say the script fails loud, never ships."""
+    try:
+        from faster_whisper import WhisperModel
+        model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        segs, _ = model.transcribe(path)
+        heard = " ".join(s.text for s in segs).lower()
+        want = set(re.findall(r"[a-z']+", expected.lower()))
+        got = set(re.findall(r"[a-z']+", heard))
+        overlap = len(want & got) / max(1, len(want))
+        print(f"AUDIO_QA {os.path.basename(path)} overlap={overlap:.2f}")
+        if overlap < 0.55:
+            raise RuntimeError(f"AUDIO_QA_FAIL {path}: transcription matches only {overlap:.0%} of script")
+        return True
+    except ImportError:
+        print("AUDIO_QA_SKIPPED: faster_whisper unavailable")
+        return False
+
+
 def cut(src, dst, start, end):
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-ss", f"{start:.3f}",
                     "-to", f"{end:.3f}", "-c:a", "libmp3lame", dst], check=True, timeout=90)
@@ -215,22 +239,31 @@ def main():
     for i, s in enumerate(SCENES):
         full = voice(s["narr"], os.path.join(PUB, f"v{i}"))          # VOICE FIRST
         fullpath = os.path.join(PUB, full)
+        qa_audio(fullpath, s["narr"])                                # QA: voice says the script
         bts = beats_from_audio(fullpath)
         if bts and len(bts) > 1:
             for bi, (st, en, _txt) in enumerate(bts):                 # one picture per breath
                 clip = cut(fullpath, os.path.join(PUB, f"b{i}_{bi}.mp3"), st, en)
-                img_name = f"s{i}_{bi}.jpg"
-                if not image(s["vis"], os.path.join(PUB, img_name)):
+                # STICKMAN LANE: no generated backgrounds at all. The world is the clean
+                # code horizon and the LOCKED AI pose sprites (public/elijah_poses/).
+                if STORY == "elijah":
                     img_name = None
+                else:
+                    img_name = f"s{i}_{bi}.jpg"
+                    if not image(s["vis"], os.path.join(PUB, img_name)):
+                        img_name = None
                 frames = max(18, int(dur(os.path.join(PUB, clip)) * FPS))
                 scenes.append({"kind": s["kind"] if bi == 0 else "scene", "label": s["label"],
                                "ref": s.get("ref", "") if bi == 0 else "",
                                "img": img_name, "audio": clip, "frames": frames,
                                "motion": s.get("motion")})
         else:
-            img_name = f"s{i}.jpg"
-            if not image(s["vis"], os.path.join(PUB, img_name)):
+            if STORY == "elijah":
                 img_name = None
+            else:
+                img_name = f"s{i}.jpg"
+                if not image(s["vis"], os.path.join(PUB, img_name)):
+                    img_name = None
             frames = int(dur(fullpath) * FPS) + 8
             scenes.append({"kind": s["kind"], "label": s["label"], "ref": s.get("ref", ""),
                            "img": img_name, "audio": full, "frames": frames,
