@@ -1,0 +1,105 @@
+name: Render Elements
+on:
+  repository_dispatch:
+    types: [render-elements]
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "20"}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Mask incoming secrets
+        run: |
+          echo "::add-mask::${{ github.event.client_payload.cf_key }}"
+          echo "::add-mask::${{ github.event.client_payload.drive_token }}"
+          echo "::add-mask::${{ github.event.client_payload.fish_key }}"
+      - name: System deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          pip install --quiet faster-whisper
+      - name: Install Remotion
+        working-directory: remotion
+        run: npm install --no-audit --no-fund
+      - name: Build voice + beats + style-locked art (Laws 1-4)
+        working-directory: remotion
+        env:
+          CF_ACCOUNT_ID: ${{ github.event.client_payload.cf_account }}
+          CF_API_KEY: ${{ github.event.client_payload.cf_key }}
+          CF_EMAIL: ${{ github.event.client_payload.cf_email }}
+          FISH_API_KEY: ${{ github.event.client_payload.fish_key }}
+          SPEC_URL: ${{ github.event.client_payload.spec_url }}
+        run: python elements.py
+      - name: Render MP4 (9:16)
+        working-directory: remotion
+        run: npx remotion render ElementsShort out.mp4 --props=props.json --concurrency=2 --crf=23
+      - name: AUDIO QA (transcribe back, must match narration)
+        working-directory: remotion
+        run: |
+          python - <<'PY'
+          import json, subprocess, re
+          from faster_whisper import WhisperModel
+          subprocess.run(["ffmpeg","-y","-loglevel","error","-i","out.mp4","-vn","-c:a","libmp3lame","qa.mp3"],check=True)
+          m=WhisperModel("tiny",device="cpu",compute_type="int8")
+          segs,_=m.transcribe("qa.mp3")
+          heard=" ".join(s.text for s in segs).lower()
+          props=json.load(open("props.json"))
+          want=set()
+          for sc in props["scenes"]:
+              for w in re.findall(r"[a-z']+", (sc.get("narr") or "").lower()): want.add(w)
+          longw=[w for w in want if len(w)>3]
+          hit=sum(1 for w in longw if w in heard)
+          need=max(1,int(len(longw)*0.45))
+          print(f"AUDIO_QA heard {len(heard)} chars; matched {hit}/{need} of {len(longw)} key words")
+          if len(heard) < 60 or hit < need:
+              raise SystemExit("AUDIO QA FAILED: narration unclear or does not match script")
+          print("AUDIO QA PASSED")
+          PY
+      - name: FINAL QA (duration sanity + streams + look at frames)
+        working-directory: remotion
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          probe=json.loads(subprocess.run(["ffprobe","-v","quiet","-of","json","-show_format","-show_streams","out.mp4"],capture_output=True,text=True).stdout)
+          codecs=[s.get("codec_type") for s in probe["streams"]]
+          assert "video" in codecs and "audio" in codecs, "missing stream"
+          dur=float(probe["format"]["duration"]); size=int(probe["format"]["size"])
+          props=json.load(open("props.json"))
+          expect=sum(s["frames"] for s in props["scenes"])/30.0
+          drift=abs(dur-expect)/expect
+          print(f"DURATION {dur:.1f}s expected {expect:.1f}s drift {drift:.1%} size {size/1e6:.1f}MB")
+          assert drift < 0.03, "duration drift over 3%"
+          assert size > 1_000_000, "file too small"
+          for t in (1, dur/2, dur-1.5):
+              subprocess.run(["ffmpeg","-y","-loglevel","error","-ss",str(t),"-i","out.mp4","-frames:v","1",f"frame_{int(t)}.jpg"],check=True)
+          print("FINAL QA PASSED")
+          PY
+      - name: Keep render + frames as run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.client_payload.out_name }}-render
+          path: |
+            remotion/out.mp4
+            remotion/frame_*.jpg
+          retention-days: 3
+      - name: Upload to Drive (PRIVATE)
+        working-directory: remotion
+        env:
+          DRIVE_TOKEN: ${{ github.event.client_payload.drive_token }}
+          DRIVE_FOLDER: ${{ github.event.client_payload.folder }}
+          OUT_NAME: ${{ github.event.client_payload.out_name }}
+        run: |
+          python - <<'PY'
+          import os, json, urllib.request
+          tok=os.environ["DRIVE_TOKEN"]; folder=os.environ.get("DRIVE_FOLDER")
+          name=os.environ.get("OUT_NAME","elements")+".mp4"
+          b="NBMr7e6b"
+          pre=(f"--{b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps({'name':name,'parents':[folder]})}\r\n--{b}\r\nContent-Type: video/mp4\r\n\r\n").encode()
+          body=pre+open("out.mp4","rb").read()+f"\r\n--{b}--".encode()
+          req=urllib.request.Request("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id",data=body,method="POST",headers={"Authorization":"Bearer "+tok,"Content-Type":f"multipart/related; boundary={b}"})
+          fid=json.loads(urllib.request.urlopen(req,timeout=600).read())["id"]
+          print("FINAL_VIDEO_ID="+fid)
+          PY

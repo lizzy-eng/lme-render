@@ -2,6 +2,7 @@ import React from 'react';
 import {Composition} from 'remotion';
 import {FacelessListicle, facelessMetadata} from './FacelessListicle';
 import {SacredFilm, sacredMetadata} from './SacredFilm';
+import {ElementsShort, elementsMetadata} from './ElementsShort';
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -30,6 +31,20 @@ export const RemotionRoot: React.FC = () => {
           title: 'The Story of Ruth',
           accent: '#c45670',
           scenes: [{kind: 'title', label: 'The Story of Ruth', frames: 90}],
+        }}
+      />
+      <Composition
+        id="ElementsShort"
+        component={ElementsShort}
+        fps={30}
+        width={1080}
+        height={1920}
+        calculateMetadata={elementsMetadata}
+        defaultProps={{
+          title: 'Elements of Power',
+          element: 'EARTH',
+          accent: '#c45670',
+          scenes: [{kind: 'opener', label: 'Sample', frames: 60}],
         }}
       />
     </>
