@@ -158,6 +158,12 @@ def beats_from_audio(path):
                 cur.append(w)
         beats.append([cur[0][0], words[-1][1], "".join(x[2] for x in cur).strip()])
         beats[0][0] = 0.0
+        # CONTINUITY (Lizzy's quality law, 2026-07-23): no dropped audio, ever. Each
+        # beat ends exactly where the next begins; the last runs to the file's true
+        # end. Cuts land inside pauses, so no word can ever be clipped or skipped.
+        for j in range(len(beats) - 1):
+            beats[j][1] = beats[j + 1][0]
+        beats[-1][1] = dur(path)
         return beats
     except Exception as e:
         print("WHISPER_BEATS_FALLBACK:", str(e)[:140])

@@ -58,6 +58,21 @@ jobs:
               raise SystemExit("AUDIO QA FAILED: narration unclear or does not match script")
           print("AUDIO QA PASSED")
           PY
+      - name: CONTINUITY QA (no caption may sit on silence)
+        working-directory: remotion
+        run: |
+          python - <<'PY'
+          import subprocess, re, json
+          out = subprocess.run(["ffmpeg","-i","out.mp4","-af","silencedetect=noise=-35dB:d=1.5","-f","null","-"],capture_output=True,text=True).stderr
+          sil = [(float(a), float(b)) for a,b in zip(re.findall(r"silence_start: ([0-9.]+)", out), re.findall(r"silence_duration: ([0-9.]+)", out))]
+          probe=json.loads(subprocess.run(["ffprobe","-v","quiet","-of","json","-show_format","out.mp4"],capture_output=True,text=True).stdout)
+          total=float(probe["format"]["duration"])
+          bad=[(s,d) for s,d in sil if s < total-2.5 and d > 1.5]
+          print("interior silences over 1.5s:", bad or "none")
+          if bad:
+              raise SystemExit("CONTINUITY QA FAILED: captions would sit on silence at " + str(bad))
+          print("CONTINUITY QA PASSED")
+          PY
       - name: FINAL QA (duration sanity + streams + look at frames)
         working-directory: remotion
         run: |
