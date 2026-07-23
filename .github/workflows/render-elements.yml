@@ -104,12 +104,19 @@ jobs:
         working-directory: remotion
         env:
           DRIVE_TOKEN: ${{ github.event.client_payload.drive_token }}
+          DRIVE_REFRESH: ${{ github.event.client_payload.drive_refresh }}
           DRIVE_FOLDER: ${{ github.event.client_payload.folder }}
           OUT_NAME: ${{ github.event.client_payload.out_name }}
         run: |
           python - <<'PY'
-          import os, json, urllib.request
-          tok=os.environ["DRIVE_TOKEN"]; folder=os.environ.get("DRIVE_FOLDER")
+          import os, json, urllib.request, urllib.parse
+          tok=os.environ.get("DRIVE_TOKEN","")
+          ref=os.environ.get("DRIVE_REFRESH","")
+          if ref:
+              c=json.loads(ref)
+              body=urllib.parse.urlencode({"client_id":c["cid"],"client_secret":c["csec"],"refresh_token":c["rt"],"grant_type":"refresh_token"}).encode()
+              tok=json.loads(urllib.request.urlopen(urllib.request.Request("https://oauth2.googleapis.com/token",data=body,method="POST"),timeout=60).read())["access_token"]
+          folder=os.environ.get("DRIVE_FOLDER")
           name=os.environ.get("OUT_NAME","elements")+".mp4"
           b="NBMr7e6b"
           pre=(f"--{b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps({'name':name,'parents':[folder]})}\r\n--{b}\r\nContent-Type: video/mp4\r\n\r\n").encode()
