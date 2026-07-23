@@ -229,7 +229,10 @@ def main():
         vis = s.get("vis")
 
         provided = None
-        if s.get("img_url"):
+        if s.get("vid_url"):
+            provided = f"s{i}_mot.mp4"
+            fetch(s["vid_url"], os.path.join(PUB, provided))
+        elif s.get("img_url"):
             provided = f"s{i}_prov.jpg"
             fetch(s["img_url"], os.path.join(PUB, provided))
 

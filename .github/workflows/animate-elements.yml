@@ -1,0 +1,126 @@
+name: Animate Elements
+# TRUE MOTION lane (Lizzy 2026-07-23): animate still frames into motion clips with
+# open weights LTX-Video distilled (image to video) on free public Actions minutes,
+# commit the clips to lizzy-eng/elements-of-power, write the animated episode spec,
+# then chain-dispatch render-elements so the finished animated episode lands in
+# Drive automatically. Zero cost, zero manual steps.
+on:
+  repository_dispatch:
+    types: [animate-elements]
+jobs:
+  animate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        frame: ${{ fromJSON(github.event.client_payload.frames) }}
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install torch cpu + diffusers
+        run: |
+          pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --quiet diffusers transformers accelerate sentencepiece imageio imageio-ffmpeg pillow
+      - name: Animate frame ${{ matrix.frame }}
+        env:
+          FRAME: ${{ matrix.frame }}
+          BASE: ${{ github.event.client_payload.frames_base_url }}
+          MOTION_PROMPT: ${{ github.event.client_payload.motion_prompt }}
+        run: |
+          python - <<'PY'
+          import os, torch, urllib.request
+          from diffusers import LTXImageToVideoPipeline
+          from diffusers.utils import export_to_video, load_image
+          frame = os.environ["FRAME"]
+          url = os.environ["BASE"].rstrip("/") + f"/ora_{frame}.png"
+          urllib.request.urlretrieve(url, "in.png")
+          image = load_image("in.png")
+          prompt = os.environ.get("MOTION_PROMPT") or (
+            "gentle cinematic motion, the woman breathes and her hair and clothing move softly in the wind, "
+            "elemental energy flows and shimmers, flames flicker, water ripples, light rays drift, "
+            "slow subtle camera push in, smooth, high quality, no text")
+          neg = "worst quality, jitter, warping, morphing faces, text, watermark"
+          last = None
+          for repo, steps, gs in (("Lightricks/LTX-Video-0.9.7-distilled", 8, 1.0),
+                                   ("Lightricks/LTX-Video", 30, 5.0)):
+              try:
+                  pipe = LTXImageToVideoPipeline.from_pretrained(repo, torch_dtype=torch.float32)
+                  pipe.enable_attention_slicing()
+                  out = pipe(image=image, prompt=prompt, negative_prompt=neg,
+                             width=512, height=288, num_frames=49,
+                             num_inference_steps=steps, guidance_scale=gs)
+                  export_to_video(out.frames[0], f"clip_{frame}.mp4", fps=24)
+                  print("ANIMATED with", repo)
+                  break
+              except Exception as e:
+                  last = e
+                  print("PIPE_FAIL", repo, str(e)[:300])
+          else:
+              raise SystemExit(f"all pipelines failed: {last}")
+          import subprocess, json
+          probe = json.loads(subprocess.run(["ffprobe","-v","quiet","-of","json","-show_format",f"clip_{frame}.mp4"],capture_output=True,text=True).stdout)
+          d = float(probe["format"]["duration"]); assert d > 1.2, "clip too short"
+          print(f"CLIP_OK frame={frame} dur={d:.2f}s")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clip-${{ matrix.frame }}
+          path: clip_*.mp4
+          retention-days: 3
+
+  chain:
+    needs: animate
+    if: ${{ github.event.client_payload.assemble == '1' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mask secrets
+        run: |
+          echo "::add-mask::${{ github.event.client_payload.gh_pat }}"
+          echo "::add-mask::${{ github.event.client_payload.cf_key }}"
+          echo "::add-mask::${{ github.event.client_payload.drive_token }}"
+          echo "::add-mask::${{ github.event.client_payload.fish_key }}"
+      - uses: actions/download-artifact@v4
+        with: {merge-multiple: true}
+      - name: Commit clips + animated spec to elements-of-power
+        env:
+          GH_PAT: ${{ github.event.client_payload.gh_pat }}
+          SCENE_MAP: ${{ github.event.client_payload.scene_map }}
+          SPEC: ${{ github.event.client_payload.base_spec }}
+        run: |
+          sudo apt-get install -y -qq ffmpeg
+          git clone -q https://lizzy-eng:${GH_PAT}@github.com/lizzy-eng/elements-of-power.git eop
+          mkdir -p eop/assets/ora_motion
+          for f in clip_*.mp4; do ffmpeg -y -loglevel error -i "$f" -c copy -movflags +faststart "eop/assets/ora_motion/$f"; done
+          python - <<'PY'
+          import json, os
+          spec = json.load(open(f"eop/specs/{os.environ['SPEC']}.json"))
+          m = json.loads(os.environ["SCENE_MAP"])
+          for idx, frame in m.items():
+              i = int(idx)
+              if os.path.exists(f"eop/assets/ora_motion/clip_{frame}.mp4"):
+                  spec["scenes"][i]["vid_url"] = f"https://raw.githubusercontent.com/lizzy-eng/elements-of-power/main/assets/ora_motion/clip_{frame}.mp4"
+          json.dump(spec, open(f"eop/specs/{os.environ['SPEC']}-animated.json","w"), indent=2)
+          print("animated spec written")
+          PY
+          cd eop && git add -A && git -c user.name="eop-animator" -c user.email="noreply@anthropic.com" commit -qm "Ora motion clips (LTX distilled, free Actions) + animated episode spec" && git push -q
+      - name: Chain dispatch the animated render
+        env:
+          GH_PAT: ${{ github.event.client_payload.gh_pat }}
+          P: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          p = json.loads(os.environ["P"])
+          payload = {"event_type": "render-elements", "client_payload": {
+            "spec_url": f"https://raw.githubusercontent.com/lizzy-eng/elements-of-power/main/specs/{p['base_spec']}-animated.json",
+            "out_name": p["out_name"], "composition": p.get("composition","ElementsFilm"),
+            "cf_account": p["cf_account"], "cf_key": p["cf_key"], "cf_email": p["cf_email"],
+            "fish_key": p["fish_key"], "drive_token": p["drive_token"], "folder": p["folder"]}}
+          req = urllib.request.Request("https://api.github.com/repos/lizzy-eng/lme-render/dispatches",
+            data=json.dumps(payload).encode(), method="POST",
+            headers={"Authorization": "Bearer " + os.environ["GH_PAT"],
+                     "Accept": "application/vnd.github+json", "Content-Type": "application/json"})
+          urllib.request.urlopen(req, timeout=60)
+          print("render-elements dispatched for the ANIMATED episode")
+          PY

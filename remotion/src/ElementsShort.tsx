@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  AbsoluteFill, Audio, Img, Sequence, interpolate, spring, staticFile,
+  AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, spring, staticFile,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
 
@@ -35,6 +35,19 @@ const KB: React.FC<{img: string; d: number; dir: number; contain?: boolean}> = (
   const t = f / Math.max(1, d);
   const scale = dir % 2 === 0 ? interpolate(t, [0, 1], [1.04, 1.16]) : interpolate(t, [0, 1], [1.16, 1.04]);
   const dy = interpolate(t, [0, 1], [0, dir % 2 === 0 ? -22 : 18]);
+  if (img.endsWith('.mp4') || img.endsWith('.webm')) {
+    // TRUE MOTION (Lizzy 2026-07-23): generated motion clips loop under the type.
+    return (
+      <AbsoluteFill>
+        <OffthreadVideo
+          muted
+          loop
+          src={staticFile(img)}
+          style={{width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${Math.max(1.02, scale * 0.98)})`}}
+        />
+      </AbsoluteFill>
+    );
+  }
   return (
     <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
       <Img
