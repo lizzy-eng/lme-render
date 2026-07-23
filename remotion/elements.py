@@ -164,6 +164,26 @@ def beats_from_audio(path):
         return None
 
 
+def align_captions(narr, bts):
+    """Whisper is timing only; captions carry the SCRIPT text. Distribute the
+    script's own words across beats proportionally to whisper's word counts so
+    a mistranscription can never appear on screen."""
+    words = narr.split()
+    counts = [max(1, len(b[2].split())) for b in bts]
+    total = sum(counts)
+    out, pos = [], 0
+    for j, (st, en, _txt) in enumerate(bts):
+        remaining_beats = len(bts) - 1 - j
+        if j == len(bts) - 1:
+            take = len(words) - pos
+        else:
+            take = round(counts[j] / total * len(words))
+            take = max(1, min(take, len(words) - pos - remaining_beats))
+        out.append([st, en, " ".join(words[pos:pos + take])])
+        pos += take
+    return out
+
+
 def qa_audio(path, expected):
     """LAW 4 AUDIO QA GATE: the voice must say the script."""
     try:
@@ -210,6 +230,7 @@ def main():
         if kind == "teach":
             bts = beats_from_audio(fullpath)
             if bts:
+                bts = align_captions(narr, bts)
                 # LAW 3: no still may hold past 7s; split toward ~5.5s
                 MAX_HOLD, TARGET = 7.0, 5.5
                 split = []
