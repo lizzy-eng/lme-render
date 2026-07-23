@@ -22,6 +22,10 @@ jobs:
         run: |
           pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
           pip install --quiet diffusers transformers accelerate sentencepiece imageio imageio-ffmpeg pillow
+      - name: Add swap (16GB runner pressure valve)
+        run: |
+          sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          free -h
       - name: Animate frame ${{ matrix.frame }}
         env:
           FRAME: ${{ matrix.frame }}
@@ -29,7 +33,7 @@ jobs:
           MOTION_PROMPT: ${{ github.event.client_payload.motion_prompt }}
         run: |
           python - <<'PY'
-          import os, torch, urllib.request
+          import os, gc, torch, urllib.request
           from diffusers import LTXImageToVideoPipeline
           from diffusers.utils import export_to_video, load_image
           frame = os.environ["FRAME"]
@@ -38,26 +42,26 @@ jobs:
           image = load_image("in.png")
           prompt = os.environ.get("MOTION_PROMPT") or (
             "gentle cinematic motion, the woman breathes and her hair and clothing move softly in the wind, "
-            "elemental energy flows and shimmers, flames flicker, water ripples, light rays drift, "
+            "elemental energy flows and shimmers, flames flicker, water ripples and flows, light rays drift, "
             "slow subtle camera push in, smooth, high quality, no text")
-          neg = "worst quality, jitter, warping, morphing faces, text, watermark"
-          last = None
-          for repo, steps, gs in (("Lightricks/LTX-Video-0.9.7-distilled", 8, 1.0),
-                                   ("Lightricks/LTX-Video", 30, 5.0)):
-              try:
-                  pipe = LTXImageToVideoPipeline.from_pretrained(repo, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
-                  pipe.enable_attention_slicing()
-                  out = pipe(image=image, prompt=prompt, negative_prompt=neg,
-                             width=448, height=256, num_frames=33,
-                             num_inference_steps=steps, guidance_scale=gs)
-                  export_to_video(out.frames[0], f"clip_{frame}.mp4", fps=24)
-                  print("ANIMATED with", repo)
-                  break
-              except Exception as e:
-                  last = e
-                  print("PIPE_FAIL", repo, str(e)[:300])
-          else:
-              raise SystemExit(f"all pipelines failed: {last}")
+          repo = "Lightricks/LTX-Video-0.9.7-distilled"
+          # STAGE 1: text encoder ONLY (the 9GB T5 never coexists with the video model)
+          enc = LTXImageToVideoPipeline.from_pretrained(repo, transformer=None, vae=None,
+                                                        torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
+          pe, pam, ne, nam = enc.encode_prompt(prompt=prompt, negative_prompt=None,
+                                               do_classifier_free_guidance=False,
+                                               num_videos_per_prompt=1, device="cpu")
+          del enc; gc.collect()
+          print("STAGE1 OK: prompt encoded, T5 freed")
+          # STAGE 2: video model ONLY
+          pipe = LTXImageToVideoPipeline.from_pretrained(repo, text_encoder=None, tokenizer=None,
+                                                         torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
+          pipe.enable_attention_slicing()
+          out = pipe(image=image, prompt_embeds=pe, prompt_attention_mask=pam,
+                     width=448, height=256, num_frames=33,
+                     num_inference_steps=8, guidance_scale=1.0)
+          export_to_video(out.frames[0], f"clip_{frame}.mp4", fps=24)
+          print("ANIMATED with", repo)
           import subprocess, json
           probe = json.loads(subprocess.run(["ffprobe","-v","quiet","-of","json","-show_format",f"clip_{frame}.mp4"],capture_output=True,text=True).stdout)
           d = float(probe["format"]["duration"]); assert d > 1.2, "clip too short"
