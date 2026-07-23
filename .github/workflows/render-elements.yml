@@ -35,7 +35,7 @@ jobs:
         run: python elements.py
       - name: Render MP4 (9:16)
         working-directory: remotion
-        run: npx remotion render ElementsShort out.mp4 --props=props.json --concurrency=2 --crf=23
+        run: npx remotion render "${{ github.event.client_payload.composition || 'ElementsShort' }}" out.mp4 --props=props.json --concurrency=2 --crf=23
       - name: AUDIO QA (transcribe back, must match narration)
         working-directory: remotion
         run: |

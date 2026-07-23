@@ -202,6 +202,11 @@ def main():
         qa_audio(fullpath, narr)                                     # LAW 4 audio gate
         vis = s.get("vis")
 
+        provided = None
+        if s.get("img_url"):
+            provided = f"s{i}_prov.jpg"
+            fetch(s["img_url"], os.path.join(PUB, provided))
+
         if kind == "teach":
             bts = beats_from_audio(fullpath)
             if bts:
@@ -223,27 +228,32 @@ def main():
                 img_cache = {}
                 for bi, (st, en, txt) in enumerate(bts):
                     clip = cut(fullpath, os.path.join(PUB, f"b{i}_{bi}.mp3"), st, en)
-                    slot = bi // 2                                    # fresh art every ~2 beats
-                    img_name = f"s{i}_{slot}.jpg"
-                    if img_name not in img_cache:
-                        if not image(vis or narr, os.path.join(PUB, img_name)):
-                            raise RuntimeError(f"IMAGE_GATE_FAIL scene {i} slot {slot}: no image passed visual QA after 3 rolls")
-                        img_cache[img_name] = True
+                    if provided:
+                        img_name = provided
+                    else:
+                        slot = bi // 2                                # fresh art every ~2 beats
+                        img_name = f"s{i}_{slot}.jpg"
+                        if img_name not in img_cache:
+                            if not image(vis or narr, os.path.join(PUB, img_name)):
+                                raise RuntimeError(f"IMAGE_GATE_FAIL scene {i} slot {slot}: no image passed visual QA after 3 rolls")
+                            img_cache[img_name] = True
                     frames = max(16, int(dur(os.path.join(PUB, clip)) * FPS))
                     scenes.append({"kind": "teach", "label": txt,
                                    "ref": s.get("ref", "") if bi == 0 else "",
                                    "img": img_name, "audio": clip, "frames": frames, "narr": txt})
                 continue
             # fallback: single beat
-            img_name = f"s{i}.jpg"
-            if not image(vis or narr, os.path.join(PUB, img_name)):
+            img_name = provided or f"s{i}.jpg"
+            if not provided and not image(vis or narr, os.path.join(PUB, img_name)):
                 raise RuntimeError(f"IMAGE_GATE_FAIL scene {i}: no image passed visual QA after 3 rolls")
             scenes.append({"kind": "teach", "label": s.get("label", narr), "ref": s.get("ref", ""),
                            "img": img_name, "audio": full, "frames": int(dur(fullpath) * FPS) + 8, "narr": narr})
             continue
 
         img_name = None
-        if kind == "opener":
+        if provided:
+            img_name = provided
+        elif kind == "opener":
             img_name = opener_file
         elif kind == "cta":
             img_name = logo_file

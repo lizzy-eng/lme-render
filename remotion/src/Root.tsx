@@ -47,6 +47,20 @@ export const RemotionRoot: React.FC = () => {
           scenes: [{kind: 'opener', label: 'Sample', frames: 60}],
         }}
       />
+      <Composition
+        id="ElementsFilm"
+        component={ElementsShort}
+        fps={30}
+        width={1920}
+        height={1080}
+        calculateMetadata={elementsMetadata}
+        defaultProps={{
+          title: 'Elements of Power',
+          element: 'ORA',
+          accent: '#c45670',
+          scenes: [{kind: 'opener', label: 'Sample', frames: 60}],
+        }}
+      />
     </>
   );
 };
