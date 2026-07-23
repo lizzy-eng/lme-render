@@ -45,10 +45,10 @@ jobs:
           for repo, steps, gs in (("Lightricks/LTX-Video-0.9.7-distilled", 8, 1.0),
                                    ("Lightricks/LTX-Video", 30, 5.0)):
               try:
-                  pipe = LTXImageToVideoPipeline.from_pretrained(repo, torch_dtype=torch.float32)
+                  pipe = LTXImageToVideoPipeline.from_pretrained(repo, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
                   pipe.enable_attention_slicing()
                   out = pipe(image=image, prompt=prompt, negative_prompt=neg,
-                             width=512, height=288, num_frames=49,
+                             width=448, height=256, num_frames=33,
                              num_inference_steps=steps, guidance_scale=gs)
                   export_to_video(out.frames[0], f"clip_{frame}.mp4", fps=24)
                   print("ANIMATED with", repo)
