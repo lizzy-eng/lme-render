@@ -21,7 +21,7 @@ jobs:
       - name: Install torch cpu + diffusers
         run: |
           pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
-          pip install --quiet diffusers transformers accelerate sentencepiece imageio imageio-ffmpeg pillow
+          pip install --quiet diffusers transformers accelerate sentencepiece tiktoken protobuf imageio imageio-ffmpeg pillow
       - name: Add swap (16GB runner pressure valve)
         run: |
           sudo fallocate -l 12G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
