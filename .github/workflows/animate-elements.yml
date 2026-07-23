@@ -77,9 +77,9 @@ jobs:
       - name: Mask secrets
         run: |
           echo "::add-mask::${{ github.event.client_payload.gh_pat }}"
-          echo "::add-mask::${{ github.event.client_payload.cf_key }}"
-          echo "::add-mask::${{ github.event.client_payload.drive_token }}"
-          echo "::add-mask::${{ github.event.client_payload.fish_key }}"
+          echo "::add-mask::${{ github.event.client_payload.render.cf_key }}"
+          echo "::add-mask::${{ github.event.client_payload.render.drive_token }}"
+          echo "::add-mask::${{ github.event.client_payload.render.fish_key }}"
       - uses: actions/download-artifact@v4
         with: {merge-multiple: true}
       - name: Commit clips + animated spec to elements-of-power
@@ -112,11 +112,12 @@ jobs:
           python - <<'PY'
           import json, os, urllib.request
           p = json.loads(os.environ["P"])
+          r = p["render"]
           payload = {"event_type": "render-elements", "client_payload": {
             "spec_url": f"https://raw.githubusercontent.com/lizzy-eng/elements-of-power/main/specs/{p['base_spec']}-animated.json",
             "out_name": p["out_name"], "composition": p.get("composition","ElementsFilm"),
-            "cf_account": p["cf_account"], "cf_key": p["cf_key"], "cf_email": p["cf_email"],
-            "fish_key": p["fish_key"], "drive_token": p["drive_token"], "folder": p["folder"]}}
+            "cf_account": r["cf_account"], "cf_key": r["cf_key"], "cf_email": r["cf_email"],
+            "fish_key": r["fish_key"], "drive_token": r["drive_token"], "folder": r["folder"]}}
           req = urllib.request.Request("https://api.github.com/repos/lizzy-eng/lme-render/dispatches",
             data=json.dumps(payload).encode(), method="POST",
             headers={"Authorization": "Bearer " + os.environ["GH_PAT"],
