@@ -42,6 +42,28 @@ def fetch(url, path):
     return os.path.basename(path)
 
 
+def cutout(src, dst):
+    """Subject/background separation (rembg u2net, open source, CPU). Returns the
+    foreground filename or None; a failed cutout never blocks the render."""
+    try:
+        from rembg import remove
+        from PIL import Image
+        img = Image.open(src).convert("RGB")
+        fg = remove(img)
+        # require a meaningful subject (over 4 percent of pixels visible)
+        alpha = fg.getchannel("A")
+        coverage = sum(1 for a in alpha.getdata() if a > 40) / (fg.width * fg.height)
+        if coverage < 0.04:
+            print(f"CUTOUT_SKIP {src}: subject coverage {coverage:.1%}")
+            return None
+        fg.save(dst)
+        print(f"CUTOUT_OK {os.path.basename(dst)} coverage {coverage:.1%}")
+        return os.path.basename(dst)
+    except Exception as e:
+        print("CUTOUT_SKIPPED:", str(e)[:120])
+        return None
+
+
 def _ai(model, payload):
     url = f"https://api.cloudflare.com/client/v4/accounts/{ACC}/ai/run/{model}"
     data = json.dumps(payload).encode()
@@ -229,12 +251,17 @@ def main():
         vis = s.get("vis")
 
         provided = None
+        fg_name = None
         if s.get("vid_url"):
             provided = f"s{i}_mot.mp4"
             fetch(s["vid_url"], os.path.join(PUB, provided))
         elif s.get("img_url"):
             provided = f"s{i}_prov.jpg"
             fetch(s["img_url"], os.path.join(PUB, provided))
+            # OWNED 2.5D ANIMATION (Lizzy 2026-07-23): cut the subject from the
+            # background so the character moves independently of her world.
+            if s.get("cutout", True):
+                fg_name = cutout(os.path.join(PUB, provided), os.path.join(PUB, f"s{i}_fg.png"))
 
         if kind == "teach":
             bts = beats_from_audio(fullpath)
@@ -270,14 +297,16 @@ def main():
                     frames = max(16, int(dur(os.path.join(PUB, clip)) * FPS))
                     scenes.append({"kind": "teach", "label": txt,
                                    "ref": s.get("ref", "") if bi == 0 else "",
-                                   "img": img_name, "audio": clip, "frames": frames, "narr": txt})
+                                   "img": img_name, "fg": fg_name, "fx": s.get("fx", ""),
+                                   "audio": clip, "frames": frames, "narr": txt})
                 continue
             # fallback: single beat
             img_name = provided or f"s{i}.jpg"
             if not provided and not image(vis or narr, os.path.join(PUB, img_name)):
                 raise RuntimeError(f"IMAGE_GATE_FAIL scene {i}: no image passed visual QA after 3 rolls")
             scenes.append({"kind": "teach", "label": s.get("label", narr), "ref": s.get("ref", ""),
-                           "img": img_name, "audio": full, "frames": int(dur(fullpath) * FPS) + 8, "narr": narr})
+                           "img": img_name, "fg": fg_name, "fx": s.get("fx", ""),
+                           "audio": full, "frames": int(dur(fullpath) * FPS) + 8, "narr": narr})
             continue
 
         img_name = None
@@ -293,7 +322,8 @@ def main():
                 raise RuntimeError(f"IMAGE_GATE_FAIL scene {i}: no image passed visual QA after 3 rolls")
         frames = int(dur(fullpath) * FPS) + 8
         scenes.append({"kind": kind, "label": s.get("label", ""), "ref": s.get("ref", ""),
-                       "img": img_name, "audio": full, "frames": frames, "narr": narr})
+                       "img": img_name, "fg": fg_name, "fx": s.get("fx", ""),
+                       "audio": full, "frames": frames, "narr": narr})
 
     props = {"title": spec["title"], "element": spec.get("element", ""),
              "accent": spec.get("accent", "#c45670"), "scenes": scenes}

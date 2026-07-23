@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, spring, staticFile,
+  AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, random, spring, staticFile,
   useCurrentFrame, useVideoConfig,
 } from 'remotion';
 
@@ -20,9 +20,80 @@ export type EScene = {
   label: string;        // on-screen text (captions carry the spoken words on teach beats)
   ref?: string;         // citation chip / series tag
   img?: string;         // filename under public/
+  fg?: string | null;   // subject cutout (owned 2.5D layer animation)
+  fx?: string;          // particle system: embers | water | motes | rays | wind | spirit
   audio?: string;       // filename under public/
   narr?: string;        // spoken text (carried for QA)
   frames: number;
+};
+
+// ANIMATION LAYERS (owned, code driven, Academy doctrine: simple motions perfectly
+// timed to the voice; animate objects, keep captions bold and punchy).
+
+const FX_COLORS: Record<string, string[]> = {
+  embers: ['#ffb35c', '#ff7a3d', '#ffd9a0'],
+  water: ['#7fd4ff', '#b8ecff', '#4fb3e8'],
+  motes: ['#ffd98a', '#c9f2a5', '#fef2f4'],
+  rays: ['#fef2f4', '#f0b3bd', '#ffd9a0'],
+  wind: ['#dfe9f5', '#b9c8dd', '#fef2f4'],
+  spirit: ['#c9a0ff', '#e6d2ff', '#fef2f4'],
+};
+
+const Particles: React.FC<{fx: string; d: number; seed: number}> = ({fx, d, seed}) => {
+  const f = useCurrentFrame();
+  const {width, height} = useVideoConfig();
+  const colors = FX_COLORS[fx] || FX_COLORS.motes;
+  const N = 46;
+  const dots = [];
+  for (let i = 0; i < N; i++) {
+    const r1 = random(`x${seed}-${i}`), r2 = random(`y${seed}-${i}`), r3 = random(`s${seed}-${i}`);
+    const size = 3 + r3 * (fx === 'embers' ? 7 : 10);
+    const speed = 0.6 + r2 * 1.6;
+    const rise = (f * speed + r1 * height * 2) % (height + 240);
+    const y = fx === 'water' ? (rise * 0.35) % (height + 120) - 60 : height + 120 - rise;
+    const x = r1 * width + Math.sin(f / (16 + r2 * 22) + i) * (fx === 'wind' ? 90 : 34);
+    const op = Math.max(0, Math.sin((rise / (height + 240)) * Math.PI)) * (0.28 + r3 * 0.5);
+    const c = colors[i % colors.length];
+    dots.push(
+      <div key={i} style={{position: 'absolute', left: x, top: y, width: size,
+        height: fx === 'rays' ? size * (8 + r2 * 14) : size, borderRadius: fx === 'rays' ? 3 : '50%',
+        background: c, opacity: op, filter: `blur(${fx === 'rays' ? 3 : 1}px)`,
+        boxShadow: `0 0 ${10 + size * 2}px ${c}`,
+        transform: fx === 'rays' ? 'rotate(14deg)' : undefined}} />
+    );
+  }
+  return <AbsoluteFill style={{pointerEvents: 'none'}}>{dots}</AbsoluteFill>;
+};
+
+// The subject breathes, sways, and floats free of the drifting background: 2.5D.
+const LivingScene: React.FC<{img: string; fg?: string | null; d: number; dir: number}> = ({img, fg, d, dir}) => {
+  const f = useCurrentFrame();
+  const t = f / Math.max(1, d);
+  const bgScale = dir % 2 === 0 ? interpolate(t, [0, 1], [1.1, 1.24]) : interpolate(t, [0, 1], [1.24, 1.1]);
+  const bgDx = interpolate(t, [0, 1], [0, dir % 2 === 0 ? -34 : 30]);
+  const breathe = 1 + 0.014 * Math.sin(f / 23);
+  const bob = 7 * Math.sin(f / 31);
+  const sway = 0.5 * Math.sin(f / 47);
+  const fgScale = (dir % 2 === 0 ? interpolate(t, [0, 1], [1.05, 1.14]) : interpolate(t, [0, 1], [1.14, 1.05])) * breathe;
+  return (
+    <AbsoluteFill>
+      <Img src={staticFile(img)} style={{position: 'absolute', width: '100%', height: '100%',
+        objectFit: 'cover', objectPosition: 'center 30%',
+        transform: `scale(${bgScale}) translateX(${bgDx}px)`, filter: 'brightness(0.9)'}} />
+      {fg ? (
+        <Img src={staticFile(fg)} style={{position: 'absolute', width: '100%', height: '100%',
+          objectFit: 'cover', objectPosition: 'center 30%',
+          transform: `scale(${fgScale}) translate(${bgDx * 0.4}px, ${bob}px) rotate(${sway}deg)`,
+          filter: 'drop-shadow(0 0 44px rgba(196,86,112,0.35))'}} />
+      ) : null}
+    </AbsoluteFill>
+  );
+};
+
+const GlowPulse: React.FC<{accent: string}> = ({accent}) => {
+  const f = useCurrentFrame();
+  const op = 0.16 + 0.12 * Math.sin(f / 27) + interpolate(f, [0, 10], [0.25, 0], {extrapolateRight: 'clamp'});
+  return <AbsoluteFill style={{background: `radial-gradient(70% 46% at 50% 44%, ${accent}44 0%, rgba(0,0,0,0) 70%)`, opacity: op, pointerEvents: 'none'}} />;
 };
 export type EProps = {title: string; element?: string; accent?: string; scenes: EScene[]};
 
@@ -89,7 +160,9 @@ const Scene: React.FC<{s: EScene; idx: number; accent: string; element?: string}
     return (
       <Fade d={d}>
         <Cosmic />
-        {s.img ? <KB img={s.img} d={d} dir={0} contain /> : null}
+        {s.img && s.fg ? <LivingScene img={s.img} fg={s.fg} d={d} dir={0} /> : s.img ? <KB img={s.img} d={d} dir={0} contain /> : null}
+        {s.fx ? <Particles fx={s.fx} d={d} seed={11} /> : null}
+        <GlowPulse accent={accent} />
         <Scrim />
         {aud}
         <AbsoluteFill style={{justifyContent: 'flex-start', alignItems: 'center', paddingTop: 130}}>
@@ -113,7 +186,8 @@ const Scene: React.FC<{s: EScene; idx: number; accent: string; element?: string}
     return (
       <Fade d={d}>
         <Cosmic />
-        {s.img ? <KB img={s.img} d={d} dir={idx} /> : null}
+        {s.img && s.fg ? <LivingScene img={s.img} fg={s.fg} d={d} dir={idx} /> : s.img ? <KB img={s.img} d={d} dir={idx} /> : null}
+        {s.fx ? <Particles fx={s.fx} d={d} seed={idx * 5 + 1} /> : null}
         <AbsoluteFill style={{background: 'radial-gradient(90% 60% at 50% 50%, rgba(16,19,28,0.35) 0%, rgba(7,9,16,0.88) 100%)'}} />
         {aud}
         <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', padding: '0 100px'}}>
@@ -147,11 +221,13 @@ const Scene: React.FC<{s: EScene; idx: number; accent: string; element?: string}
     );
   }
 
-  // teach beat: scene image + true caption of the spoken words + citation chip
+  // teach beat: living 2.5D scene + voice-timed particles + true caption + citation chip
   return (
     <Fade d={d}>
       <Cosmic />
-      {s.img ? <KB img={s.img} d={d} dir={idx} /> : null}
+      {s.img && s.fg ? <LivingScene img={s.img} fg={s.fg} d={d} dir={idx} /> : s.img ? <KB img={s.img} d={d} dir={idx} /> : null}
+      {s.fx ? <Particles fx={s.fx} d={d} seed={idx * 7 + 3} /> : null}
+      <GlowPulse accent={accent} />
       <Scrim />
       {aud}
       {s.ref ? (
