@@ -207,7 +207,11 @@ const Scene: React.FC<{s: EScene; idx: number; accent: string; element?: string}
         <Cosmic />
         {s.img ? (
           <AbsoluteFill style={{justifyContent: 'flex-start', alignItems: 'center', paddingTop: 170}}>
-            <Img src={staticFile(s.img)} style={{width: 560, height: 560, borderRadius: '50%', objectFit: 'cover', boxShadow: `0 0 90px rgba(196,86,112,0.5)`, border: `6px solid ${accent}`}} />
+            {s.img.endsWith('.mp4') || s.img.endsWith('.webm') ? (
+              <OffthreadVideo muted loop src={staticFile(s.img)} style={{width: 560, height: 560, borderRadius: '50%', objectFit: 'cover', boxShadow: `0 0 90px rgba(196,86,112,0.5)`, border: `6px solid ${accent}`}} />
+            ) : (
+              <Img src={staticFile(s.img)} style={{width: 560, height: 560, borderRadius: '50%', objectFit: 'cover', boxShadow: `0 0 90px rgba(196,86,112,0.5)`, border: `6px solid ${accent}`}} />
+            )}
           </AbsoluteFill>
         ) : null}
         {aud}
