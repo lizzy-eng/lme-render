@@ -24,6 +24,7 @@ export type EScene = {
   fx?: string;          // particle system: embers | water | motes | rays | wind | spirit
   audio?: string;       // filename under public/
   narr?: string;        // spoken text (carried for QA)
+  captions?: {text: string; from: number; to: number}[];  // gapless caption schedule
   frames: number;
 };
 
@@ -113,6 +114,7 @@ const KB: React.FC<{img: string; d: number; dir: number; contain?: boolean}> = (
         <OffthreadVideo
           muted
           loop
+          playbackRate={0.6}
           src={staticFile(img)}
           style={{width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${Math.max(1.02, scale * 0.98)})`}}
         />
@@ -208,7 +210,7 @@ const Scene: React.FC<{s: EScene; idx: number; accent: string; element?: string}
         {s.img ? (
           <AbsoluteFill style={{justifyContent: 'flex-start', alignItems: 'center', paddingTop: 170}}>
             {s.img.endsWith('.mp4') || s.img.endsWith('.webm') ? (
-              <OffthreadVideo muted loop src={staticFile(s.img)} style={{width: 560, height: 560, borderRadius: '50%', objectFit: 'cover', boxShadow: `0 0 90px rgba(196,86,112,0.5)`, border: `6px solid ${accent}`}} />
+              <OffthreadVideo muted loop playbackRate={0.6} src={staticFile(s.img)} style={{width: 560, height: 560, borderRadius: '50%', objectFit: 'cover', boxShadow: `0 0 90px rgba(196,86,112,0.5)`, border: `6px solid ${accent}`}} />
             ) : (
               <Img src={staticFile(s.img)} style={{width: 560, height: 560, borderRadius: '50%', objectFit: 'cover', boxShadow: `0 0 90px rgba(196,86,112,0.5)`, border: `6px solid ${accent}`}} />
             )}
@@ -225,7 +227,14 @@ const Scene: React.FC<{s: EScene; idx: number; accent: string; element?: string}
     );
   }
 
-  // teach beat: living 2.5D scene + voice-timed particles + true caption + citation chip
+  // teach scene: unbroken narration, captions change on the timing schedule above it
+  const cap = (s.captions && s.captions.length)
+    ? (s.captions.find((c) => f >= c.from && f < c.to) || null)
+    : {text: s.label, from: 0, to: d};
+  const capLocal = cap ? Math.max(0, f - cap.from) : 0;
+  const capRise = spring({frame: capLocal, fps, config: {damping: 200}});
+  const capY = interpolate(capRise, [0, 1], [30, 0]);
+  const capOp = interpolate(capLocal, [0, 8], [0, 1], {extrapolateRight: 'clamp'});
   return (
     <Fade d={d}>
       <Cosmic />
@@ -239,11 +248,13 @@ const Scene: React.FC<{s: EScene; idx: number; accent: string; element?: string}
           <div style={{fontFamily: FONT, fontSize: 28, letterSpacing: 3, color: CREAM, background: 'rgba(16,19,28,0.72)', border: `2px solid ${accent}`, borderRadius: 40, padding: '14px 34px', fontWeight: 700}}>{s.ref}</div>
         </AbsoluteFill>
       ) : null}
-      <AbsoluteFill style={{justifyContent: 'flex-end', alignItems: 'center'}}>
-        <div style={{transform: `translateY(${y}px)`, opacity: op, textAlign: 'center', padding: '0 70px 260px'}}>
-          <div style={{fontFamily: FONT, fontSize: 58, fontWeight: 800, lineHeight: 1.22, color: CREAM, textShadow: '0 3px 26px rgba(0,0,0,0.9)'}}>{s.label}</div>
-        </div>
-      </AbsoluteFill>
+      {cap ? (
+        <AbsoluteFill style={{justifyContent: 'flex-end', alignItems: 'center'}}>
+          <div style={{transform: `translateY(${capY}px)`, opacity: capOp, textAlign: 'center', padding: '0 70px 260px'}}>
+            <div style={{fontFamily: FONT, fontSize: 58, fontWeight: 800, lineHeight: 1.22, color: CREAM, textShadow: '0 3px 26px rgba(0,0,0,0.9)'}}>{cap.text}</div>
+          </div>
+        </AbsoluteFill>
+      ) : null}
     </Fade>
   );
 };

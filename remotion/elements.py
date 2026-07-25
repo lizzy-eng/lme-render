@@ -264,49 +264,29 @@ def main():
                 fg_name = cutout(os.path.join(PUB, provided), os.path.join(PUB, f"s{i}_fg.png"))
 
         if kind == "teach":
+            # GAPLESS (Lizzy's law, 2026-07-24): the voice is NEVER cut. One unbroken
+            # audio track per scene; captions change on a timing schedule above it, so
+            # no word can ever be clipped or skipped at a splice.
             bts = beats_from_audio(fullpath)
             if bts:
                 bts = align_captions(narr, bts)
-                # LAW 3: no still may hold past 7s; split toward ~5.5s
-                MAX_HOLD, TARGET = 7.0, 5.5
-                split = []
-                for st, en, txt in bts:
-                    dd = en - st
-                    if dd <= MAX_HOLD:
-                        split.append([st, en, txt])
-                    else:
-                        n = max(2, math.ceil(dd / TARGET))
-                        step = dd / n
-                        for k in range(n):
-                            split.append([st + k * step, min(en, st + (k + 1) * step), txt])
-                bts = split
+            total_frames = int(math.ceil(dur(fullpath) * FPS)) + 6
+            caps = []
             if bts and len(bts) > 1:
-                # one QA-passed picture per couple of breaths, TRUE captions per beat
-                img_cache = {}
-                for bi, (st, en, txt) in enumerate(bts):
-                    clip = cut(fullpath, os.path.join(PUB, f"b{i}_{bi}.mp3"), st, en)
-                    if provided:
-                        img_name = provided
-                    else:
-                        slot = bi // 2                                # fresh art every ~2 beats
-                        img_name = f"s{i}_{slot}.jpg"
-                        if img_name not in img_cache:
-                            if not image(vis or narr, os.path.join(PUB, img_name)):
-                                raise RuntimeError(f"IMAGE_GATE_FAIL scene {i} slot {slot}: no image passed visual QA after 3 rolls")
-                            img_cache[img_name] = True
-                    frames = max(16, int(dur(os.path.join(PUB, clip)) * FPS))
-                    scenes.append({"kind": "teach", "label": txt,
-                                   "ref": s.get("ref", "") if bi == 0 else "",
-                                   "img": img_name, "fg": fg_name, "fx": s.get("fx", ""),
-                                   "audio": clip, "frames": frames, "narr": txt})
-                continue
-            # fallback: single beat
-            img_name = provided or f"s{i}.jpg"
-            if not provided and not image(vis or narr, os.path.join(PUB, img_name)):
-                raise RuntimeError(f"IMAGE_GATE_FAIL scene {i}: no image passed visual QA after 3 rolls")
-            scenes.append({"kind": "teach", "label": s.get("label", narr), "ref": s.get("ref", ""),
+                for st, en, txt in bts:
+                    caps.append({"text": txt, "from": max(0, int(st * FPS)), "to": min(total_frames, int(en * FPS) + 2)})
+            else:
+                caps.append({"text": s.get("label", narr), "from": 0, "to": total_frames})
+            if provided:
+                img_name = provided
+            else:
+                img_name = f"s{i}.jpg"
+                if not image(vis or narr, os.path.join(PUB, img_name)):
+                    raise RuntimeError(f"IMAGE_GATE_FAIL scene {i}: no image passed visual QA after 3 rolls")
+            scenes.append({"kind": "teach", "label": "", "ref": s.get("ref", ""),
                            "img": img_name, "fg": fg_name, "fx": s.get("fx", ""),
-                           "audio": full, "frames": int(dur(fullpath) * FPS) + 8, "narr": narr})
+                           "audio": full, "frames": total_frames, "narr": narr,
+                           "captions": caps})
             continue
 
         img_name = None
